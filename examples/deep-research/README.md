@@ -171,6 +171,12 @@ Results land in `trace.jsonl`, which doubles as a resume log, so re-running
 after an interruption picks up where it stopped. The report covers the queries
 one run researched, and a resumed run leaves the earlier records in the trace
 and out of its totals, so quality, joules, and seconds describe the same calls.
+A closing section reads the whole trace back and reports where the benchmark
+stands across every run, which is the state a resume continues from. Joules
+there are priced from the token counts, since Orla prices one run at a time.
+A trace whose runs used more than one profile reports its queries by profile
+and leaves the joules to the per-run table.
+
 Each record also carries the ReAct loops the query ran. A loop is one agent
 working its own turn cycle, either the lead or one delegated researcher. A
 turn is one model call, so a loop of five turns called tools on four of them.

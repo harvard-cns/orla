@@ -127,9 +127,10 @@ class TraceRecord(BaseModel):
     gold_retrieved: int
     gold_opened: int
     calls: list[Call]
-    # loops defaults so a trace missing it still loads and resumes, since
-    # read_trace drops a record it cannot validate.
+    # loops and profile default so a trace missing them still loads and
+    # resumes, since read_trace drops a record it cannot validate.
     loops: list[Loop] = []
+    profile: str = ""
     question: str | None = None
     gold: str | None = None
     pred: str | None = None
@@ -296,6 +297,7 @@ async def research_one(team: ResearchTeam, q: Query) -> TraceRecord:
     return TraceRecord(
         query_id=q.query_id,
         run=run,
+        profile=PROFILE,
         loops=out.loops,
         correct=correct,
         contains=contains,
@@ -418,6 +420,7 @@ def report(
     _print_rates(records, totals, energy, wall)
     _print_loops(records)
     _warn_on_drift(totals, energy, failed, sum(len(r.calls) for r in records))
+    _print_state(energy, records)
 
 
 def _tokens_by_stage(records: list[TraceRecord]) -> dict[str, TokenCount]:
@@ -530,6 +533,37 @@ def _print_loops(records: list[TraceRecord]) -> None:
     skipped = len(records) - len(traced)
     if skipped:
         print(f"  loop tracking is missing from {skipped:,} of these queries")
+
+
+def _print_state(energy: Energy, fresh: list[TraceRecord]) -> None:
+    """What the trace holds across every run, which is where a resume picks up.
+
+    Joules are priced from the token counts, since orla prices one run at a
+    time. A trace spanning several profiles reports its queries by profile and
+    leaves the joules to the per-run table.
+    """
+    records = read_trace(TRACE_PATH)
+    # A run that covered the whole trace would only repeat the report above.
+    if len(records) <= len(fresh):
+        return
+    profiles = Counter(r.profile or "unrecorded" for r in records)
+    turns = sum(len(r.calls) for r in records)
+    print(f"\n  {TRACE_PATH} holds {len(records):,} queries across every run")
+    print(f"  accuracy                    {sum(r.correct for r in records) / len(records):.1%}")
+    print(
+        f"  turns                       {turns:,} over {sum(len(r.loops) for r in records):,} loops"
+    )
+    print(f"  seconds                     {sum(r.seconds for r in records):,.1f}")
+    if len(profiles) == 1 and PROFILE in profiles:
+        prompt = sum(c.prompt_tokens for r in records for c in r.calls)
+        output = sum(c.completion_tokens for r in records for c in r.calls)
+        joules = (
+            prompt * energy.joules_per_prompt_token + output * energy.joules_per_completion_token
+        )
+        print(f"  joules                      {joules:,.1f} at {PROFILE}")
+    else:
+        named = ", ".join(f"{n} on {name}" for name, n in profiles.most_common())
+        print(f"  profiles                    {named}")
 
 
 def _warn_on_drift(totals: Totals, energy: Energy, failed: int, traced: int) -> None:
