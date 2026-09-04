@@ -38,7 +38,7 @@ from pathlib import Path
 from datasets import load_dataset
 from pydantic import BaseModel, ValidationError
 
-from agent import STAGES, Call, ResearchTeam
+from agent import STAGES, Call, Loop, ResearchTeam
 from corpus import Corpus
 
 ORLA_API = os.environ.get("ORLA_API", "http://localhost:8081")
@@ -127,6 +127,9 @@ class TraceRecord(BaseModel):
     gold_retrieved: int
     gold_opened: int
     calls: list[Call]
+    # loops defaults so a trace missing it still loads and resumes, since
+    # read_trace drops a record it cannot validate.
+    loops: list[Loop] = []
     question: str | None = None
     gold: str | None = None
     pred: str | None = None
@@ -293,6 +296,7 @@ async def research_one(team: ResearchTeam, q: Query) -> TraceRecord:
     return TraceRecord(
         query_id=q.query_id,
         run=run,
+        loops=out.loops,
         correct=correct,
         contains=contains,
         confidence=out.confidence,
@@ -412,6 +416,7 @@ def report(
     _print_quality(records)
     totals = _print_stages(orla_stage_costs(since), tokens, energy)
     _print_rates(records, totals, energy, wall)
+    _print_loops(records)
     _warn_on_drift(totals, energy, failed, sum(len(r.calls) for r in records))
 
 
@@ -490,6 +495,41 @@ def _print_rates(records: list[TraceRecord], totals: Totals, energy: Energy, wal
     print(f"  summed model latency        {totals.latency_ms / 1000:,.1f}s")
     if job_seconds:
         print(f"  parallelism within a job    {totals.latency_ms / 1000 / job_seconds:.1f}x")
+
+
+def _print_loops(records: list[TraceRecord]) -> None:
+    """Turns and wall time per ReAct loop, grouped by the two agent roles.
+
+    A turn is one model call, so a loop of n turns called tools on n-1 of them.
+    A record carrying no loops stays out of the table.
+    """
+    traced = [r for r in records if r.loops]
+    if not traced:
+        return
+    # A loop name is unique within one query, so turns are counted per record.
+    rows: dict[str, list[tuple[int, float]]] = {}
+    for record in traced:
+        turns = Counter(call.loop for call in record.calls)
+        for loop in record.loops:
+            rows.setdefault(loop.stage, []).append((turns[loop.name], loop.seconds))
+
+    total_turns = sum(t for group in rows.values() for t, _ in group)
+    print(f"\n  turns per query             {total_turns / len(traced):,.1f}")
+    print(f"\n  {'loop':<18}{'loops':>8}{'turns':>8}{'turns/loop':>13}{'s/loop':>9}")
+    for stage in STAGES:
+        group = rows.get(stage, [])
+        if not group:
+            continue
+        loops = len(group)
+        stage_turns = sum(t for t, _ in group)
+        seconds = sum(sec for _, sec in group)
+        print(
+            f"  {stage:<18}{loops:>8,}{stage_turns:>8,}"
+            f"{stage_turns / loops:>13.1f}{seconds / loops:>9.1f}"
+        )
+    skipped = len(records) - len(traced)
+    if skipped:
+        print(f"  loop tracking is missing from {skipped:,} of these queries")
 
 
 def _warn_on_drift(totals: Totals, energy: Energy, failed: int, traced: int) -> None:

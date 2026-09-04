@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import os
 import threading
+import time
+from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -85,15 +87,34 @@ class Answer(BaseModel):
     confidence: int
 
 
+LEAD_LOOP = "lead"
+
+# The ReAct loop a model call belongs to. Each delegation runs its subagent in
+# its own context, so the calls a subagent makes carry that delegation's name.
+_active_loop: ContextVar[str] = ContextVar("active_loop", default=LEAD_LOOP)
+
+
 @dataclass(frozen=True)
 class Call:
     """One model call: the stage that made it, what Orla called it, and what it
-    cost in tokens. Orla prices the same call from the backend's energy profile."""
+    cost in tokens. Orla prices the same call from the backend's energy profile.
+    A call is one turn of the loop it names."""
 
     stage: str
     completion_id: str
     prompt_tokens: int
     completion_tokens: int
+    loop: str = LEAD_LOOP
+
+
+@dataclass(frozen=True)
+class Loop:
+    """One agent's ReAct loop and how long it ran. Turns are the calls naming
+    this loop, so a loop that took n turns called tools on n-1 of them."""
+
+    name: str
+    stage: str
+    seconds: float
 
 
 @dataclass
@@ -108,6 +129,7 @@ class Research:
     subagents: int = 0
     seconds: float = 0.0
     calls: list[Call] = field(default_factory=list)
+    loops: list[Loop] = field(default_factory=list)
     searches: list[str] = field(default_factory=list)
     retrieved: list[str] = field(default_factory=list)
     opened: list[str] = field(default_factory=list)
@@ -116,6 +138,10 @@ class Research:
     def add_call(self, call: Call) -> None:
         with self._lock:
             self.calls.append(call)
+
+    def add_loop(self, loop: Loop) -> None:
+        with self._lock:
+            self.loops.append(loop)
 
     def add_search(self, query: str, hits: list[Hit]) -> None:
         with self._lock:
@@ -172,6 +198,7 @@ class RecordingModel(OpenAIChatModel):
                 completion_id=response.provider_response_id or "",
                 prompt_tokens=usage.input_tokens or 0,
                 completion_tokens=usage.output_tokens or 0,
+                loop=_active_loop.get(),
             )
         )
         return response
@@ -216,16 +243,26 @@ class BudgetedSubAgents(SubAgentToolset):
         ctx: RunContext[Deps],
         tool: ToolsetTool[Deps],
     ) -> object:
+        token: Token[str] | None = None
+        loop, started = "", 0.0
         if name == "task":
             # Subagents share one event loop and this check reaches no await,
             # so the count cannot race.
             if self.spawned >= self._max_spawns:
                 return f"error: this job may spawn at most {self._max_spawns} subagents"
             self.spawned += 1
+            loop = f"researcher-{self.spawned}"
+            token = _active_loop.set(loop)
+            started = time.monotonic()
         try:
             return await super().call_tool(name, tool_args, ctx, tool)
         except UsageLimitExceeded as e:
             return f"the subagent stopped on its budget and reported nothing further: {e}"
+        finally:
+            if token is not None:
+                _active_loop.reset(token)
+                elapsed = time.monotonic() - started
+                ctx.deps.record.add_loop(Loop(name=loop, stage=SUBAGENT_STAGE, seconds=elapsed))
 
 
 def _build_subagent(model: RecordingModel) -> Agent[Deps, str]:
@@ -294,11 +331,19 @@ class ResearchTeam:
             output_type=Answer,
         )
 
-        result = await lead.run(
-            query,
-            deps=deps,
-            usage_limits=UsageLimits(request_limit=LEAD_REQUEST_LIMIT),
-        )
+        token = _active_loop.set(LEAD_LOOP)
+        started = time.monotonic()
+        try:
+            result = await lead.run(
+                query,
+                deps=deps,
+                usage_limits=UsageLimits(request_limit=LEAD_REQUEST_LIMIT),
+            )
+        finally:
+            _active_loop.reset(token)
+            record.add_loop(
+                Loop(name=LEAD_LOOP, stage=LEAD_STAGE, seconds=time.monotonic() - started)
+            )
         record.answer = result.output.answer.strip()
         record.confidence = result.output.confidence
         record.subagents = toolset.spawned

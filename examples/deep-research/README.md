@@ -171,6 +171,29 @@ Results land in `trace.jsonl`, which doubles as a resume log, so re-running
 after an interruption picks up where it stopped. The report covers the queries
 one run researched, and a resumed run leaves the earlier records in the trace
 and out of its totals, so quality, joules, and seconds describe the same calls.
+Each record also carries the ReAct loops the query ran. A loop is one agent
+working its own turn cycle, either the lead or one delegated researcher. A
+turn is one model call, so a loop of five turns called tools on four of them.
+The report groups the loops by role:
+
+```
+  turns per query             9.0
+
+  loop                 loops   turns   turns/loop   s/loop
+  research-lead            2       6          3.0     41.0
+  research-subagent        4      12          3.0     11.5
+```
+
+Turns per query counts every model call one query made, across both roles.
+In the table, `loops` is how many loops that role ran, `turns` is the model
+calls they made between them, and the last two columns average the turns and
+the wall time over those loops. The two roles show 2 lead loops and 4
+researcher loops here because the run researched 2 queries, each delegating
+to 2 researchers.
+
+The lead's loop spans the whole job, since it waits on every researcher it
+spawns. The lead's wall time is therefore the job time, and the researchers'
+times overlap inside it.
 
 | Variable | Default | Meaning |
 |---|---|---|
