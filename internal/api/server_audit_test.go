@@ -202,14 +202,12 @@ func TestAuditControlPlaneMutations_RecordsContentTypeRejections(t *testing.T) {
 }
 
 // TestAuditControlPlaneMutations_RecordsContentTypeRejectionsOnEncodedPaths
-// covers a percent-encoded path segment (e.g. a literal "%2F"), which
-// decodes differently in URL.Path than in URL.RawPath. Real chi
-// dispatch always prefers RawPath, so resolving the rejection's
-// would-be pattern must walk the same string or it can miss a real
-// resource, or worse, phantom-match one a request never actually
-// reached. Each case also asserts exactly one audit entry, not two,
-// guarding against the rejection's speculative route lookup leaking
-// state into the shared route context loggingMiddleware reads later.
+// covers a percent-encoded path segment, which decodes differently in
+// URL.Path than in URL.RawPath. Resolving a rejection's pattern has to
+// walk the string real dispatch walks, or it misses a real resource or
+// phantom-matches one the request never reached. Each case asserts a
+// single audit entry, which holds the speculative route lookup out of
+// the context loggingMiddleware reads later.
 func TestAuditControlPlaneMutations_RecordsContentTypeRejectionsOnEncodedPaths(t *testing.T) {
 	tests := []struct {
 		name string

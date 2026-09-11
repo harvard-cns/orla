@@ -140,18 +140,19 @@ func requireJSONMiddleware(router chi.Router, audit ControlPlaneAuditMetrics) fu
 				next.ServeHTTP(w, r)
 				return
 			}
-			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			declared := r.Header.Get("Content-Type")
+			mediaType, _, err := mime.ParseMediaType(declared)
 			if err != nil || mediaType != "application/json" {
 				if audit != nil {
-					// A fresh scratch context, never the request's own:
-					// Find mutates it in place, and the request's shared
-					// context is still read by loggingMiddleware below,
-					// which would otherwise see this speculative lookup's
-					// leftover state and double-count the mutation.
+					// Find mutates the route context it is handed, so
+					// this lookup gets a scratch one. The request's own
+					// context stays empty, and loggingMiddleware reads
+					// it later and records no second mutation.
 					pattern := router.Find(chi.NewRouteContext(), r.Method, routingPath(r))
 					auditControlPlaneMutation(audit, r, pattern, http.StatusUnsupportedMediaType)
 				}
-				writeErrorMsg(w, http.StatusUnsupportedMediaType, "content-type must be application/json")
+				writeErrorMsg(w, http.StatusUnsupportedMediaType,
+					fmt.Sprintf("content-type must be application/json, got %q", declared))
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -159,12 +160,12 @@ func requireJSONMiddleware(router chi.Router, audit ControlPlaneAuditMetrics) fu
 	}
 }
 
-// routingPath returns the path chi's own dispatcher would route on,
+// routingPath returns the path chi's dispatcher would route on,
 // preferring RawPath the way routeHTTP does. A percent-encoded
-// segment (e.g. a literal "%2F") decodes differently in Path than in
-// RawPath, so resolving a route pattern for an unrouted request must
-// walk the same string real dispatch would or it can match a
-// different route entirely, or none at all.
+// segment such as a literal %2F decodes differently in Path than in
+// RawPath. Resolving a pattern for an unrouted request has to walk
+// the same string real dispatch walks, or it matches some other
+// route or none at all.
 func routingPath(r *http.Request) string {
 	if r.URL.RawPath != "" {
 		return r.URL.RawPath
@@ -234,9 +235,9 @@ func controlPlaneResource(pattern string) (string, bool) {
 }
 
 // auditControlPlaneMutation counts a write to the control plane by
-// method and route pattern, ignoring a GET or HEAD. The pattern may
-// be one the request would have matched rather than one it did, for
-// a rejection recorded ahead of routing.
+// method and route pattern, ignoring a GET or HEAD. A rejection
+// recorded ahead of routing passes the pattern the request would
+// have matched.
 func auditControlPlaneMutation(metrics ControlPlaneAuditMetrics, r *http.Request, pattern string, status int) {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return

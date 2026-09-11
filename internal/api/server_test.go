@@ -3,12 +3,14 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -121,9 +123,6 @@ func TestServer_AccessLogRecordsCaller(t *testing.T) {
 	assert.Contains(t, buf.String(), "forwarded_for=10.1.2.3")
 }
 
-// TestRequireJSONMiddleware registers a throwaway route on a real
-// server and asserts the expected status for each method and
-// Content-Type combination.
 func TestRequireJSONMiddleware_EnforcesContentTypeOnWrites(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -166,9 +165,9 @@ func TestRequireJSONMiddleware_EnforcesContentTypeOnWrites(t *testing.T) {
 	}
 }
 
-// TestRoutingPath_MirrorsChiPathSelection constructs requests directly
-// rather than through httptest.NewRequest, since that's the only way
-// to produce a URL with both RawPath and Path empty.
+// TestRoutingPath_MirrorsChiPathSelection builds its requests by hand,
+// since httptest.NewRequest cannot produce a URL whose RawPath and
+// Path are both empty.
 func TestRoutingPath_MirrorsChiPathSelection(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -185,5 +184,31 @@ func TestRoutingPath_MirrorsChiPathSelection(t *testing.T) {
 			r := &http.Request{URL: &url.URL{RawPath: tt.rawPath, Path: tt.path}}
 			assert.Equal(t, tt.want, routingPath(r))
 		})
+	}
+}
+
+// TestRequireJSONMiddleware_NamesTheDeclaredType covers the rejection
+// body, which quotes the caller's own header back. The encoder escapes
+// it, so a header carrying quotes stays inside the JSON envelope.
+func TestRequireJSONMiddleware_NamesTheDeclaredType(t *testing.T) {
+	srv := NewServer(ServerConfig{
+		ListenAddress: "127.0.0.1:0",
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	srv.Router().Post("/echo", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, declared := range []string{"text/plain", `a"b`} {
+		req := httptest.NewRequest(http.MethodPost, "/echo", bytes.NewReader([]byte(`{}`)))
+		req.Header.Set("Content-Type", declared)
+		rr := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusUnsupportedMediaType, rr.Code)
+		var body errorEnvelope
+		require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+		assert.Contains(t, body.Error.Message, strconv.Quote(declared))
+		assert.Equal(t, "invalid_request_error", body.Error.Type)
 	}
 }

@@ -163,9 +163,8 @@ func TestTool_InvokeSuccess(t *testing.T) {
 	assert.Empty(t, metrics.costAnomaliesSnapshot(), "cost is well within the sanity ceiling")
 }
 
-// TestTool_RejectsNonJSONContentType posts to
-// /v1/tools/structure-prediction with Content-Type text/plain and
-// asserts a 415 response without invoking the tool.
+// TestTool_RejectsNonJSONContentType covers the tool route, where a
+// rejected write must not reach the tool at all.
 func TestTool_RejectsNonJSONContentType(t *testing.T) {
 	tool := &mockTool{name: "boltz", toolKind: "structure-prediction",
 		respFn: func(provider.ToolRequest) (*provider.ToolResponse, error) {
