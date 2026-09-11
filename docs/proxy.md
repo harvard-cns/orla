@@ -14,7 +14,7 @@ Streaming follows OpenAI's data-only SSE format, terminated by `data: [DONE]`.
 
 The handler runs these checks in order. Each is a 400 unless noted.
 
-1. **Check Content-Type.** Every `POST`, `PUT`, and `PATCH` across the API must send `application/json`. Anything else returns 415. `GET`, `HEAD`, and `DELETE` are unchecked.
+1. **Check Content-Type.** A body that does not declare `application/json` returns 415. The rule covers every `POST`, `PUT`, and `PATCH` across the API, for the reason in [`SECURITY.md`](../SECURITY.md).
 2. **Decode body.** Body too large, over 10 MB, returns 400.
 3. **`messages` non-empty.**
 4. **Stage extracted.** From `X-Orla-Stage` header, falling back to `metadata.orla.stage` in the body. Missing returns 400.

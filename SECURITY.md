@@ -47,4 +47,12 @@ Orla reports every write to the control plane and serves all of them. Reporting 
 
 The request log answers who. Every request line carries `remote_addr` and `forwarded_for` alongside the method, path, and status. Orla authenticates nobody, so both addresses are whatever the caller claimed. Use the pair to correlate a write with a source you already trust, and alert on control-plane writes arriving from anywhere but your platform-engineer path.
 
+## JSON on every write
+
+Orla answers 415 to a POST, PUT, or PATCH whose `Content-Type` is anything but `application/json`. GET, HEAD, and DELETE carry no body and stay unchecked.
+
+The rule closes a path from the browser. A page can send `text/plain`, `application/x-www-form-urlencoded`, or `multipart/form-data` to another origin without asking permission first, so a page open in a developer's browser could otherwise post a JSON body to an orla running on that developer's machine and rewrite the mapping every agent runs on. Requiring `application/json` makes the browser ask permission first, and orla serves no preflight, so the write never leaves the page.
+
+A client that already sends `application/json` is unaffected. `orlactl` and the OpenAI SDKs set the header on every request.
+
 Thank you for helping keep orla secure!
