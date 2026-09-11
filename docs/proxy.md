@@ -14,14 +14,15 @@ Streaming follows OpenAI's data-only SSE format, terminated by `data: [DONE]`.
 
 The handler runs these checks in order. Each is a 400 unless noted.
 
-1. **Decode body.** Body too large, over 10 MB, returns 400.
-2. **`messages` non-empty.**
-3. **Stage extracted.** From `X-Orla-Stage` header, falling back to `metadata.orla.stage` in the body. Missing returns 400.
-4. **Resolve backend.** `registry.GetOrCreate(stage)` auto-creates a default stage record on first sighting. If the request carries `X-Orla-Mapping` and that variant overrides this stage, use the variant's backend, and the stage mapper is not consulted. Otherwise, if a dynamic stage mapper is configured, ask it (see below). Otherwise use `stage.Backend`. If that is empty, fall back to `req.Model`. If nothing resolves, return 400.
-5. **Apply inference policy** from the stage record. This sets `reasoning_effort` and, when the stage has a `prompt`, substitutes it for the leading instruction message.
-6. **Convert messages and tools** to the internal model types.
-7. **Dispatch** via `LayerExecute`, then `BackendManager.ScheduleChat`, into the per-backend queue and a worker that calls the openai-go provider.
-8. **Encode response** as OpenAI chat completion or stream chunks.
+1. **Check Content-Type.** Every `POST`, `PUT`, and `PATCH` across the API must send `application/json`. Anything else returns 415. `GET`, `HEAD`, and `DELETE` are unchecked.
+2. **Decode body.** Body too large, over 10 MB, returns 400.
+3. **`messages` non-empty.**
+4. **Stage extracted.** From `X-Orla-Stage` header, falling back to `metadata.orla.stage` in the body. Missing returns 400.
+5. **Resolve backend.** `registry.GetOrCreate(stage)` auto-creates a default stage record on first sighting. If the request carries `X-Orla-Mapping` and that variant overrides this stage, use the variant's backend, and the stage mapper is not consulted. Otherwise, if a dynamic stage mapper is configured, ask it (see below). Otherwise use `stage.Backend`. If that is empty, fall back to `req.Model`. If nothing resolves, return 400.
+6. **Apply inference policy** from the stage record. This sets `reasoning_effort` and, when the stage has a `prompt`, substitutes it for the leading instruction message.
+7. **Convert messages and tools** to the internal model types.
+8. **Dispatch** via `LayerExecute`, then `BackendManager.ScheduleChat`, into the per-backend queue and a worker that calls the openai-go provider.
+9. **Encode response** as OpenAI chat completion or stream chunks.
 
 ## Auto-create on first sighting
 

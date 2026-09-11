@@ -163,6 +163,27 @@ func TestTool_InvokeSuccess(t *testing.T) {
 	assert.Empty(t, metrics.costAnomaliesSnapshot(), "cost is well within the sanity ceiling")
 }
 
+// TestTool_RejectsNonJSONContentType posts to
+// /v1/tools/structure-prediction with Content-Type text/plain and
+// asserts a 415 response without invoking the tool.
+func TestTool_RejectsNonJSONContentType(t *testing.T) {
+	tool := &mockTool{name: "boltz", toolKind: "structure-prediction",
+		respFn: func(provider.ToolRequest) (*provider.ToolResponse, error) {
+			t.Fatal("should not be invoked")
+			return nil, nil
+		}}
+	srv, _, _, _ := newToolTestEnv(t, tool, nil)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{"sequences":["MKTV"]}`)))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set(HeaderStage, "predict")
+	rr := httptest.NewRecorder()
+	srv.Router().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusUnsupportedMediaType, rr.Code)
+}
+
 func TestTool_RequiresStageHeader(t *testing.T) {
 	tool := &mockTool{name: "boltz", toolKind: "structure-prediction",
 		respFn: func(provider.ToolRequest) (*provider.ToolResponse, error) {
@@ -173,6 +194,7 @@ func TestTool_RequiresStageHeader(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -215,6 +237,7 @@ func TestTool_WrongKindOnBackendReturns400(t *testing.T) {
 	// Client asks for structure-prediction but the backend's tool_kind is docking.
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(HeaderStage, "predict")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
@@ -239,6 +262,7 @@ func TestTool_LLMBackendOnToolRouteReturns400(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(HeaderStage, "predict")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
@@ -259,6 +283,7 @@ func TestTool_PropagatesProviderError(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{"sequences":["X"]}`)))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(HeaderStage, "predict")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
@@ -295,6 +320,7 @@ func TestTool_SchedulerUnknownBackendRecordsRejectionMetric(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/v1/tools/structure-prediction", bytes.NewReader([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(HeaderStage, "predict")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)

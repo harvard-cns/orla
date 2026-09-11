@@ -116,8 +116,10 @@ func TestAuditControlPlaneMutations_RecordsMutations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv, m := newAuditTestServer(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.Header.Set("Content-Type", "application/json")
 			rr := httptest.NewRecorder()
-			srv.Router().ServeHTTP(rr, httptest.NewRequest(tt.method, tt.path, nil))
+			srv.Router().ServeHTTP(rr, req)
 
 			assert.Equal(t, []string{tt.want}, m.snapshot())
 		})
@@ -142,8 +144,10 @@ func TestAuditControlPlaneMutations_RecordsPanicAsError(t *testing.T) {
 func TestAuditControlPlaneMutations_IgnoresDataPlane(t *testing.T) {
 	srv, m := newAuditTestServer(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	srv.Router().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	srv.Router().ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Empty(t, m.snapshot())
@@ -157,12 +161,77 @@ func TestAuditControlPlaneMutations_IgnoresUnroutedPaths(t *testing.T) {
 	srv, m := newAuditTestServer(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	for _, path := range []string{"/api/v1/junk", "/api/v1/other", "/api/v1/"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
-		srv.Router().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, path, nil))
+		srv.Router().ServeHTTP(rr, req)
 		require.Equal(t, http.StatusNotFound, rr.Code, path)
 	}
 
 	assert.Empty(t, m.snapshot())
+}
+
+// TestAuditControlPlaneMutations_RecordsContentTypeRejections covers a
+// write requireJSONMiddleware rejects before chi ever resolves a route
+// pattern, using router.Find instead. A real control-plane resource is
+// still counted, a junk path and a data-plane route are still not.
+func TestAuditControlPlaneMutations_RecordsContentTypeRejections(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		want   []string
+	}{
+		{name: "real control-plane resource", method: http.MethodPut, path: "/api/v1/stages/planning", want: []string{"stages|PUT|error"}},
+		{name: "unrouted junk path", method: http.MethodPost, path: "/api/v1/junk", want: nil},
+		{name: "data-plane route", method: http.MethodPost, path: "/v1/chat/completions", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, m := newAuditTestServer(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.Header.Set("Content-Type", "text/plain")
+			rr := httptest.NewRecorder()
+			srv.Router().ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusUnsupportedMediaType, rr.Code)
+			assert.Equal(t, tt.want, m.snapshot())
+		})
+	}
+}
+
+// TestAuditControlPlaneMutations_RecordsContentTypeRejectionsOnEncodedPaths
+// covers a percent-encoded path segment (e.g. a literal "%2F"), which
+// decodes differently in URL.Path than in URL.RawPath. Real chi
+// dispatch always prefers RawPath, so resolving the rejection's
+// would-be pattern must walk the same string or it can miss a real
+// resource, or worse, phantom-match one a request never actually
+// reached. Each case also asserts exactly one audit entry, not two,
+// guarding against the rejection's speculative route lookup leaking
+// state into the shared route context loggingMiddleware reads later.
+func TestAuditControlPlaneMutations_RecordsContentTypeRejectionsOnEncodedPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{name: "encoded slash within a real resource's id", path: "/api/v1/stages/foo%2Fbar", want: []string{"stages|PUT|error"}},
+		{name: "encoded slash makes the path literally unrouted", path: "/api/v1/stages%2Fplanning", want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv, m := newAuditTestServer(t, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+			req := httptest.NewRequest(http.MethodPut, tt.path, nil)
+			req.Header.Set("Content-Type", "text/plain")
+			rr := httptest.NewRecorder()
+			srv.Router().ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusUnsupportedMediaType, rr.Code)
+			assert.Equal(t, tt.want, m.snapshot())
+		})
+	}
 }
 
 // TestAuditControlPlaneMutations_ServesWithoutMetrics covers a server
@@ -177,8 +246,18 @@ func TestAuditControlPlaneMutations_ServesWithoutMetrics(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning", nil)
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
-	srv.Router().ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning", nil))
+	srv.Router().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// A rejection must not dereference the absent audit sink either.
+	badReq := httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning", nil)
+	badReq.Header.Set("Content-Type", "text/plain")
+	badRR := httptest.NewRecorder()
+	srv.Router().ServeHTTP(badRR, badReq)
+
+	assert.Equal(t, http.StatusUnsupportedMediaType, badRR.Code)
 }

@@ -90,6 +90,7 @@ func TestBodyLimit_RejectsOversizedBodies(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/echo", bytes.NewReader(bytes.Repeat([]byte("x"), 100)))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 

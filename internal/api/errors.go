@@ -19,7 +19,7 @@ type errorBody struct {
 
 func errorType(status int) string {
 	switch status {
-	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+	case http.StatusBadRequest, http.StatusUnprocessableEntity, http.StatusUnsupportedMediaType:
 		return "invalid_request_error"
 	case http.StatusUnauthorized, http.StatusForbidden:
 		return "permission_denied"

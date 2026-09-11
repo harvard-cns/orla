@@ -25,6 +25,7 @@ func TestBackendHandlers_CreateStoresCostSource(t *testing.T) {
 		"cost_source":     "http://localhost:9090/price",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backends", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	require.Equal(t, http.StatusCreated, rr.Code, rr.Body.String())
@@ -44,6 +45,7 @@ func TestBackendHandlers_CreateRejectsInvalidCostSource(t *testing.T) {
 		"max_concurrency": 1, "cost_source": "ftp://example.com/price",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backends", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
@@ -56,6 +58,7 @@ func TestBackendHandlers_CreateRejectsCostSourceOnTool(t *testing.T) {
 		"max_concurrency": 1, "cost_source": "http://localhost:9090/price",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/backends", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
@@ -71,6 +74,7 @@ func TestBackendHandlers_PatchSetsAndClearsCostSource(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"cost_source": "http://localhost:9090/price"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/backends/gpt4o", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
@@ -82,6 +86,7 @@ func TestBackendHandlers_PatchSetsAndClearsCostSource(t *testing.T) {
 
 	body = mustJSON(t, map[string]any{"cost_source": ""})
 	req = httptest.NewRequest(http.MethodPatch, "/api/v1/backends/gpt4o", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr = httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
@@ -101,6 +106,7 @@ func TestBackendHandlers_PatchRejectsCostSourceOnTool(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"cost_source": "http://localhost:9090/price"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/backends/boltz", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())

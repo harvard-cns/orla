@@ -41,6 +41,7 @@ func TestMappingHandlers_PutReturns201AndStores(t *testing.T) {
 		"overrides": map[string]string{"queryBuilder": "gpt-4.1"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mappings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -60,6 +61,7 @@ func TestMappingHandlers_PutRejectsEmptyOverrides(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"name": "cand", "overrides": map[string]string{}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mappings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -71,6 +73,7 @@ func TestMappingHandlers_PutRejectsMissingName(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"overrides": map[string]string{"queryBuilder": "gpt-4.1"}})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/mappings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -139,6 +142,7 @@ func newVariantProxyEnv(t *testing.T) (*Server, *stages.FakeRegistry, *mappings.
 func dispatchModel(t *testing.T, srv *Server, mapping string) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(bodyForChat("q")))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(HeaderStage, "planning")
 	if mapping != "" {
 		req.Header.Set(HeaderMapping, mapping)

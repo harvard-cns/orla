@@ -44,6 +44,7 @@ func TestStageHandlers_PutCreatesStage(t *testing.T) {
 		"labels":           map[string]any{"owner": "core"},
 	})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -87,6 +88,7 @@ func TestStageHandlers_PatchPartialUpdate(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"backend": "gpt-4o-mini"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/stages/planning", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -103,6 +105,7 @@ func TestStageHandlers_PatchMissingReturns404(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"backend": "gpt-4o"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/stages/missing", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -157,6 +160,7 @@ func TestStageHandlers_PutRejectsInvalidJSON(t *testing.T) {
 	srv, _ := newStageTestServer(t)
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning",
 		bytes.NewReader([]byte("not json")))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
@@ -169,6 +173,7 @@ func TestStageHandlers_PutRejectsUnknownFields(t *testing.T) {
 		"unknown_attr": "y",
 	})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/planning", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code,
@@ -180,6 +185,7 @@ func TestStageHandlers_PutSetsPrompt(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"backend": "gpt-4o", "prompt": "You are a careful assistant."})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/answer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -200,6 +206,7 @@ func TestStageHandlers_PatchSetsPromptLeavingBackend(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"prompt": "new prompt"})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/stages/answer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -217,6 +224,7 @@ func TestStageHandlers_PatchClearsPrompt(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"prompt": ""})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/stages/answer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -234,6 +242,7 @@ func TestStageHandlers_PutRejectsOversizePrompt(t *testing.T) {
 		"prompt":  strings.Repeat("x", maxPromptLen+1),
 	})
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/stages/answer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -247,6 +256,7 @@ func TestStageHandlers_PatchRejectsOversizePrompt(t *testing.T) {
 
 	body := mustJSON(t, map[string]any{"prompt": strings.Repeat("x", maxPromptLen+1)})
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/stages/answer", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 

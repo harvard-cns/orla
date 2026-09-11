@@ -58,6 +58,7 @@ func TestFeedback_AcceptsValidPayload(t *testing.T) {
 		"notes":         "good answer",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/feedback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 
@@ -77,6 +78,7 @@ func TestFeedback_RejectsMissingCompletionID(t *testing.T) {
 		"stage_id": "planning",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/feedback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
@@ -88,6 +90,7 @@ func TestFeedback_RejectsMissingStageID(t *testing.T) {
 		"completion_id": "chatcmpl-abc",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/feedback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
@@ -102,6 +105,7 @@ func TestFeedback_RejectsOutOfRangeRating(t *testing.T) {
 			"rating":        bad,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/v1/feedback", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		rr := httptest.NewRecorder()
 		srv.Router().ServeHTTP(rr, req)
 		assert.Equal(t, http.StatusBadRequest, rr.Code, "rating=%v should be rejected", bad)
@@ -115,6 +119,7 @@ func TestFeedback_OmittedRatingIsNil(t *testing.T) {
 		"stage_id":      "s",
 	})
 	req := httptest.NewRequest(http.MethodPost, "/v1/feedback", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rr, req)
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strings"
 	"time"
@@ -70,6 +71,7 @@ func NewServer(cfg ServerConfig) *Server {
 	r.Use(middleware.RequestID)
 	r.Use(loggingMiddleware(cfg.Logger, cfg.AuditMetrics))
 	r.Use(middleware.Recoverer)
+	r.Use(requireJSONMiddleware(r, cfg.AuditMetrics))
 	if cfg.MaxRequestBytes > 0 {
 		r.Use(bodyLimitMiddleware(cfg.MaxRequestBytes))
 	}
@@ -125,6 +127,54 @@ func bodyLimitMiddleware(limit int64) func(http.Handler) http.Handler {
 	}
 }
 
+// requireJSONMiddleware returns 415 for any POST, PUT, or PATCH whose
+// Content-Type is not application/json. GET, HEAD, DELETE, and every
+// other method pass through unchecked. A rejection is still audited,
+// using router.Find to resolve the route pattern without dispatching.
+func requireJSONMiddleware(router chi.Router, audit ControlPlaneAuditMetrics) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPost, http.MethodPut, http.MethodPatch:
+			default:
+				next.ServeHTTP(w, r)
+				return
+			}
+			mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || mediaType != "application/json" {
+				if audit != nil {
+					// A fresh scratch context, never the request's own:
+					// Find mutates it in place, and the request's shared
+					// context is still read by loggingMiddleware below,
+					// which would otherwise see this speculative lookup's
+					// leftover state and double-count the mutation.
+					pattern := router.Find(chi.NewRouteContext(), r.Method, routingPath(r))
+					auditControlPlaneMutation(audit, r, pattern, http.StatusUnsupportedMediaType)
+				}
+				writeErrorMsg(w, http.StatusUnsupportedMediaType, "content-type must be application/json")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// routingPath returns the path chi's own dispatcher would route on,
+// preferring RawPath the way routeHTTP does. A percent-encoded
+// segment (e.g. a literal "%2F") decodes differently in Path than in
+// RawPath, so resolving a route pattern for an unrouted request must
+// walk the same string real dispatch would or it can match a
+// different route entirely, or none at all.
+func routingPath(r *http.Request) string {
+	if r.URL.RawPath != "" {
+		return r.URL.RawPath
+	}
+	if r.URL.Path == "" {
+		return "/"
+	}
+	return r.URL.Path
+}
+
 func loggingMiddleware(logger *slog.Logger, audit ControlPlaneAuditMetrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +206,8 @@ func loggingMiddleware(logger *slog.Logger, audit ControlPlaneAuditMetrics) func
 			// Mounted outside Recoverer, so a panicking handler is
 			// audited with the 500 the recoverer turned it into.
 			if audit != nil {
-				auditControlPlaneMutation(audit, r, ww.Status())
+				pattern := chi.RouteContext(r.Context()).RoutePattern()
+				auditControlPlaneMutation(audit, r, pattern, ww.Status())
 			}
 		})
 	}
@@ -182,15 +233,15 @@ func controlPlaneResource(pattern string) (string, bool) {
 	return resource, resource != ""
 }
 
-// auditControlPlaneMutation counts a write to the control plane and
-// ignores everything else. Every request still reaches its handler,
-// since the audit only observes. Call it after the handler, since both
-// the status and the route chi matched are only known by then.
-func auditControlPlaneMutation(metrics ControlPlaneAuditMetrics, r *http.Request, status int) {
+// auditControlPlaneMutation counts a write to the control plane by
+// method and route pattern, ignoring a GET or HEAD. The pattern may
+// be one the request would have matched rather than one it did, for
+// a rejection recorded ahead of routing.
+func auditControlPlaneMutation(metrics ControlPlaneAuditMetrics, r *http.Request, pattern string, status int) {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return
 	}
-	resource, ok := controlPlaneResource(chi.RouteContext(r.Context()).RoutePattern())
+	resource, ok := controlPlaneResource(pattern)
 	if !ok {
 		return
 	}
