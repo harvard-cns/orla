@@ -15,7 +15,7 @@ Streaming follows OpenAI's data-only SSE format, terminated by `data: [DONE]`.
 The handler runs these checks in order. Each is a 400 unless noted.
 
 1. **Check Content-Type.** A body that does not declare `application/json` returns 415. The rule covers every `POST`, `PUT`, and `PATCH` across the API, for the reason in [`SECURITY.md`](../SECURITY.md).
-2. **Decode body.** Body too large, over 10 MB, returns 400.
+2. **Decode body.** A body over `ORLA_MAX_REQUEST_BYTES`, 10 MB by default, returns 413 with a message naming the limit.
 3. **`messages` non-empty.**
 4. **Stage extracted.** From `X-Orla-Stage` header, falling back to `metadata.orla.stage` in the body. Missing returns 400.
 5. **Resolve backend.** `registry.GetOrCreate(stage)` auto-creates a default stage record on first sighting. If the request carries `X-Orla-Mapping` and that variant overrides this stage, use the variant's backend, and the stage mapper is not consulted. Otherwise, if a dynamic stage mapper is configured, ask it (see below). Otherwise use `stage.Backend`. If that is empty, fall back to `req.Model`. If nothing resolves, return 400.
