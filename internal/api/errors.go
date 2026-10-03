@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -60,14 +62,36 @@ func writeErrorMsg(w http.ResponseWriter, status int, msg string) {
 	writeError(w, status, errors.New(msg))
 }
 
-// decodeJSON parses the request body into v. The body is left limited
-// by the bodyLimit middleware upstream, we just translate decode errors
-// into a 400.
+// writeBodyError renders a failure to read or decode the request body.
+// A body over the cap that bodyLimitMiddleware sets returns 413 and
+// names the limit, so the client knows how far to shrink it. Any other
+// failure is malformed input and returns 400.
+func writeBodyError(w http.ResponseWriter, err error) {
+	if mbe, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		writeErrorMsg(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("request body exceeds the %d byte limit", mbe.Limit))
+		return
+	}
+	writeError(w, http.StatusBadRequest, err)
+}
+
+// decodeJSON parses the request body into v and reports whether it
+// succeeded. On failure it has already written the error response. The
+// body must hold exactly one JSON value. Reading it to the end means a
+// body over the size cap returns 413 even when its first value fits.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		writeBodyError(w, err)
+		return false
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("request body must hold a single JSON value")
+		}
+		writeBodyError(w, err)
 		return false
 	}
 	return true
