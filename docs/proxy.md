@@ -143,4 +143,6 @@ The `chat/completions` route falls back to the client-supplied `model` field whe
 
 These rejections do not increment `orla_requests_total`, which counts only requests that reach dispatch, so a total error rate must union both counters.
 
+A request whose body exceeds `ORLA_MAX_REQUEST_BYTES` returns 413 and is counted in `orla_request_body_too_large_total{route}`. The counter covers every route, control-plane writes included. The `route` label is the matched route pattern, such as `/v1/chat/completions` or `/v1/tools/{kind}`, so the label set stays as small as the set of routes orla registers. Orla counts a request when its own size check trips. A 413 that an upstream backend returns through the proxy leaves the counter unchanged. Like the scheduler rejections, these requests do not increment `orla_requests_total`.
+
 Tool dispatches whose reported cost exceeds a $1,000 sanity ceiling are logged and counted in `orla_tool_cost_anomaly_total{backend}`, and still recorded as-is. Orla has no independent way to verify a tool's self-reported cost, so the counter flags an implausible value for a human to investigate.

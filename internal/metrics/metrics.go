@@ -25,6 +25,7 @@ type Metrics struct {
 	CostFetchFailuresTotal   *prometheus.CounterVec
 
 	ControlPlaneMutationsTotal *prometheus.CounterVec
+	RequestBodyTooLargeTotal   *prometheus.CounterVec
 
 	StageMapperDecisionsTotal  *prometheus.CounterVec
 	StageMapperDecisionSeconds prometheus.Histogram
@@ -93,6 +94,14 @@ func New(reg prometheus.Registerer) *Metrics {
 			},
 			[]string{"resource", "method", "outcome"},
 		),
+		RequestBodyTooLargeTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "orla",
+				Name:      "request_body_too_large_total",
+				Help:      "Requests rejected with 413 because the body exceeded ORLA_MAX_REQUEST_BYTES, by matched route pattern.",
+			},
+			[]string{"route"},
+		),
 		ToolCostAnomalyTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "orla",
@@ -135,6 +144,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		m.PolicyDecisionsTotal,
 		m.PolicyDecisionSeconds,
 		m.ControlPlaneMutationsTotal,
+		m.RequestBodyTooLargeTotal,
 		m.ToolCostAnomalyTotal,
 		m.CostFetchFailuresTotal,
 		m.StageMapperDecisionsTotal,
@@ -176,6 +186,11 @@ func (m *Metrics) ObservePolicyDecision(backend string, seconds float64) {
 // IncControlPlaneMutation is the api.ControlPlaneAuditMetrics adapter.
 func (m *Metrics) IncControlPlaneMutation(resource, method, outcome string) {
 	m.ControlPlaneMutationsTotal.WithLabelValues(resource, method, outcome).Inc()
+}
+
+// IncRequestBodyTooLarge is the api.BodyLimitMetrics adapter.
+func (m *Metrics) IncRequestBodyTooLarge(route string) {
+	m.RequestBodyTooLargeTotal.WithLabelValues(route).Inc()
 }
 
 // IncToolCostAnomaly is the api.ProxyMetrics adapter.

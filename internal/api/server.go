@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -49,6 +50,9 @@ type ServerConfig struct {
 
 	// AuditMetrics, if non-nil, counts control-plane mutations.
 	AuditMetrics ControlPlaneAuditMetrics
+
+	// BodyLimitMetrics, if non-nil, counts bodies over MaxRequestBytes.
+	BodyLimitMetrics BodyLimitMetrics
 }
 
 // Server wraps an *http.Server and the chi router. Construct with
@@ -73,7 +77,7 @@ func NewServer(cfg ServerConfig) *Server {
 	r.Use(middleware.Recoverer)
 	r.Use(requireJSONMiddleware(r, cfg.AuditMetrics))
 	if cfg.MaxRequestBytes > 0 {
-		r.Use(bodyLimitMiddleware(cfg.MaxRequestBytes))
+		r.Use(bodyLimitMiddleware(cfg.MaxRequestBytes, cfg.BodyLimitMetrics))
 	}
 
 	registerHealthRoutes(r, cfg.Ready)
@@ -118,13 +122,44 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.httpServer.Shutdown(ctx)
 }
 
-func bodyLimitMiddleware(limit int64) func(http.Handler) http.Handler {
+// BodyLimitMetrics counts requests whose body exceeded the server's
+// size cap.
+type BodyLimitMetrics interface {
+	IncRequestBodyTooLarge(route string)
+}
+
+// bodyLimitMiddleware caps the request body at limit bytes. It counts a
+// request under its matched route pattern whenever a body read returns
+// MaxBytesError, whatever status the handler writes. A 413 the proxy
+// mirrors from an upstream backend leaves the count unchanged, because
+// that request never read past the cap.
+func bodyLimitMiddleware(limit int64, metrics BodyLimitMetrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, limit)
+			body := &limitedBody{ReadCloser: http.MaxBytesReader(w, r.Body, limit)}
+			r.Body = body
 			next.ServeHTTP(w, r)
+			if body.exceeded && metrics != nil {
+				metrics.IncRequestBodyTooLarge(chi.RouteContext(r.Context()).RoutePattern())
+			}
 		})
 	}
+}
+
+// limitedBody records whether a read ran past the body limit. Handlers
+// read the body on the request goroutine, so the middleware can read
+// exceeded without a lock once the handler returns.
+type limitedBody struct {
+	io.ReadCloser
+	exceeded bool
+}
+
+func (b *limitedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
+		b.exceeded = true
+	}
+	return n, err
 }
 
 // requireJSONMiddleware returns 415 for any POST, PUT, or PATCH whose
