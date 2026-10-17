@@ -98,7 +98,7 @@ func New(reg prometheus.Registerer) *Metrics {
 			prometheus.CounterOpts{
 				Namespace: "orla",
 				Name:      "request_body_too_large_total",
-				Help:      "Requests rejected with 413 because the body exceeded ORLA_MAX_REQUEST_BYTES, by matched route pattern.",
+				Help:      "Requests whose body ran past ORLA_MAX_REQUEST_BYTES, by matched route pattern.",
 			},
 			[]string{"route"},
 		),
