@@ -15,7 +15,7 @@ Streaming follows OpenAI's data-only SSE format, terminated by `data: [DONE]`.
 The handler runs these checks in order. Each is a 400 unless noted.
 
 1. **Check Content-Type.** A body that does not declare `application/json` returns 415. The rule covers every `POST`, `PUT`, and `PATCH` across the API, for the reason in [`SECURITY.md`](../SECURITY.md).
-2. **Decode body.** Body too large, over 10 MB, returns 400.
+2. **Decode body.** A body over `ORLA_MAX_REQUEST_BYTES`, 10 MB by default, returns 413 with a message naming the limit.
 3. **`messages` non-empty.**
 4. **Stage extracted.** From `X-Orla-Stage` header, falling back to `metadata.orla.stage` in the body. Missing returns 400.
 5. **Resolve backend.** `registry.GetOrCreate(stage)` auto-creates a default stage record on first sighting. If the request carries `X-Orla-Mapping` and that variant overrides this stage, use the variant's backend, and the stage mapper is not consulted. Otherwise, if a dynamic stage mapper is configured, ask it (see below). Otherwise use `stage.Backend`. If that is empty, fall back to `req.Model`. If nothing resolves, return 400.
@@ -142,5 +142,7 @@ Some requests fail before dispatch and never reach `completion_records`. These a
 The `chat/completions` route falls back to the client-supplied `model` field when a stage has no backend mapping, so an unknown backend name can be arbitrary client input. To keep the metric from minting unbounded label series, the `unknown_backend` case records a fixed `backend="unregistered"` label. The real name still appears in the error body and logs.
 
 These rejections do not increment `orla_requests_total`, which counts only requests that reach dispatch, so a total error rate must union both counters.
+
+A request whose body exceeds `ORLA_MAX_REQUEST_BYTES` returns 413 and is counted in `orla_request_body_too_large_total{route}`. The counter covers every route, control-plane writes included. The `route` label is the matched route pattern, such as `/v1/chat/completions` or `/v1/tools/{kind}`, so the label set stays as small as the set of routes orla registers. Orla counts a request when its own size check trips. A 413 that an upstream backend returns through the proxy leaves the counter unchanged. Like the scheduler rejections, these requests do not increment `orla_requests_total`.
 
 Tool dispatches whose reported cost exceeds a $1,000 sanity ceiling are logged and counted in `orla_tool_cost_anomaly_total{backend}`, and still recorded as-is. Orla has no independent way to verify a tool's self-reported cost, so the counter flags an implausible value for a human to investigate.

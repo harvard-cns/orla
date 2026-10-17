@@ -116,6 +116,7 @@ func runServe(cmd *cobra.Command, _ []string) error {
 		Ready:             store.Ping,
 		PromRegistry:      promReg,
 		AuditMetrics:      m,
+		BodyLimitMetrics:  m,
 	})
 	api.RegisterStageRoutes(srv.Router(), stageRegistry)
 	api.RegisterMappingRoutes(srv.Router(), mappingRegistry)

@@ -63,6 +63,18 @@ func TestMetrics_ControlPlaneMutationsCounter(t *testing.T) {
 	assert.InDelta(t, 2.0, got, 1e-9)
 }
 
+func TestMetrics_RequestBodyTooLargeCounter(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := metrics.New(reg)
+
+	m.IncRequestBodyTooLarge("/v1/chat/completions")
+	m.IncRequestBodyTooLarge("/v1/chat/completions")
+	m.IncRequestBodyTooLarge("/v1/tools/{kind}")
+
+	got := testutil.ToFloat64(m.RequestBodyTooLargeTotal.WithLabelValues("/v1/chat/completions"))
+	assert.InDelta(t, 2.0, got, 1e-9)
+}
+
 func TestMetrics_PolicyDecisionsCounter(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := metrics.New(reg)

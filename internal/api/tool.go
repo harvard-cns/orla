@@ -74,7 +74,7 @@ func (h *toolHandler) invoke(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("read body: %w", err))
+		writeBodyError(w, fmt.Errorf("read body: %w", err))
 		return
 	}
 
