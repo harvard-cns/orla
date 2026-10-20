@@ -1,6 +1,6 @@
 module github.com/harvard-cns/orla
 
-go 1.26.1
+go 1.26.10
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0
